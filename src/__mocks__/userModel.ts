@@ -110,6 +110,18 @@ const UserSchema = new Schema(
       },
     },
 
+    // for error payloads tests
+    valid: {
+      type: String,
+      required: false,
+      validate: [
+        () => {
+          return false;
+        },
+        'this is a validate message',
+      ],
+    },
+
     // createdAt, created via option `timastamp: true` (see bottom)
     // updatedAt, created via option `timastamp: true` (see bottom)
   },
