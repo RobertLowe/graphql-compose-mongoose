@@ -1,23 +1,9 @@
 import type { ObjectTypeComposer, Resolver } from 'graphql-compose';
 import type { Model, Document } from 'mongoose';
 import { recordHelperArgs } from './helpers';
-import type { ExtendedResolveParams, GenResolverOpts } from './index';
+import type { GenResolverOpts } from './index';
 import { addErrorCatcherField } from './helpers/addErrorCatcherField';
-
-async function createSingle(
-  model: Model<any>,
-  recordData: any,
-  resolveParams: ExtendedResolveParams
-) {
-  // eslint-disable-next-line new-cap
-  let doc = new model(recordData);
-  if (resolveParams.beforeRecordMutate) {
-    doc = await resolveParams.beforeRecordMutate(doc, resolveParams);
-    if (!doc) return null;
-  }
-
-  return doc.save();
-}
+import { GraphQLError } from 'graphql';
 
 export default function createMany<TSource = Document, TContext = any>(
   model: Model<any>,
@@ -97,28 +83,77 @@ export default function createMany<TSource = Document, TContext = any>(
         }
       }
 
-      const recordPromises = [];
+      const validationErrors = [];
+      const docs = [];
       // concurrently create docs
       for (const record of recordData) {
-        recordPromises.push(createSingle(model, record, resolveParams as ExtendedResolveParams));
-      }
-
-      const results = await Promise.all(recordPromises);
-      const returnObj = {
-        records: [] as any[],
-        recordIds: [] as any[],
-        createCount: 0,
-      };
-
-      for (const doc of results) {
-        if (doc) {
-          returnObj.createCount += 1;
-          returnObj.records.push(doc);
-          returnObj.recordIds.push(doc._id);
+        // eslint-disable-next-line new-cap
+        let doc = new model(record);
+        if (resolveParams.beforeRecordMutate) {
+          doc = await resolveParams.beforeRecordMutate(doc, resolveParams);
         }
+
+        // same as createOne, this could be a function ex: `mapToValidationError`
+        const errors: {
+          path: string;
+          message: string;
+          value: any;
+        }[] = [];
+        const validationError: any = await new Promise((resolve) => {
+          doc.validate(resolve);
+        });
+        if (validationError) {
+          Object.keys(validationError.errors).forEach((key) => {
+            const { message, value } = validationError.errors[key];
+            errors.push({
+              path: key,
+              message,
+              value,
+            });
+          });
+          validationErrors.push({
+            message: validationError.message,
+            errors: errors,
+          });
+        } else {
+          validationErrors.push(null); // error order
+        }
+        docs.push(doc);
       }
 
-      return returnObj;
+      const hasValidationError = !validationErrors.every((error) => error === null);
+      if (!hasValidationError) {
+        await model.create(docs);
+      }
+
+      if (hasValidationError) {
+        if (!resolveParams?.projection?.error) {
+          // if client does not request `errors` field we throw Exception on to level
+          throw new GraphQLError(
+            'Cannot createMany some documents contain errors',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            {
+              validationErrors: validationErrors,
+            }
+          );
+        }
+        return {
+          records: null,
+          recordIds: null,
+          error: validationErrors,
+          createCount: docs.length,
+        };
+      } else {
+        return {
+          records: docs,
+          recordIds: docs.map((doc) => doc._id),
+          createCount: docs.length,
+        };
+      }
     },
   });
 
