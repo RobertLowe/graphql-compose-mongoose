@@ -1,9 +1,10 @@
-import { Resolver, ObjectTypeComposer, mapEachKey } from 'graphql-compose';
+import { Resolver, ObjectTypeComposer } from 'graphql-compose';
 import type { Model, Document } from 'mongoose';
 import { recordHelperArgs } from './helpers';
 import type { ExtendedResolveParams, GenResolverOpts } from './index';
 import { GraphQLError } from 'graphql';
 import { addErrorCatcherField } from './helpers/addErrorCatcherField';
+import { validateDocument, ValidationError } from './helpers/validateDocument';
 
 export default function createOne<TSource = Document, TContext = any>(
   model: Model<any>,
@@ -75,48 +76,27 @@ export default function createOne<TSource = Document, TContext = any>(
         if (!doc) return null;
       }
 
-      const validationErrors: any = await new Promise(function (resolve) {
-        doc.validate(null, null, resolve);
-      });
-      const errors: {
-        path: string;
-        message: string;
-        value: any;
-      }[] = [];
+      const validationError: ValidationError | null = await validateDocument(doc);
 
-      if (validationErrors && validationErrors.errors) {
+      if (validationError) {
         if (!resolveParams?.projection?.error) {
           // if client does not request `errors` field we throw Exception on to level
           throw new GraphQLError(
-            validationErrors.message,
+            validationError.message,
             undefined,
             undefined,
             undefined,
             undefined,
             undefined,
             {
-              validationErrors: mapEachKey(validationErrors.errors, (e: any) => {
-                return {
-                  path: e.path,
-                  message: e.message,
-                  value: e.value,
-                };
-              }),
+              validationErrors: validationError.errors,
             }
           );
         }
-        Object.keys(validationErrors.errors).forEach((key) => {
-          const { message, value } = validationErrors.errors[key];
-          errors.push({
-            path: key,
-            message,
-            value,
-          });
-        });
         return {
           record: null,
           recordId: null,
-          error: errors[0], // TODO: refactor: wrap all validation errors inside on Error object
+          error: validationError,
         };
       } else {
         await doc.save();

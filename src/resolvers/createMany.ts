@@ -4,6 +4,7 @@ import { recordHelperArgs } from './helpers';
 import type { GenResolverOpts } from './index';
 import { addErrorCatcherField } from './helpers/addErrorCatcherField';
 import { GraphQLError } from 'graphql';
+import { validateDocument, ValidationError } from './helpers/collectValidationErrors';
 
 export default function createMany<TSource = Document, TContext = any>(
   model: Model<any>,
@@ -94,26 +95,12 @@ export default function createMany<TSource = Document, TContext = any>(
         }
 
         // same as createOne, this could be a function ex: `mapToValidationError`
-        const errors: {
-          path: string;
-          message: string;
-          value: any;
-        }[] = [];
-        const validationError: any = await new Promise((resolve) => {
-          doc.validate(resolve);
-        });
+        const validationError: ValidationError | null = await validateDocument(doc);
+
         if (validationError) {
-          Object.keys(validationError.errors).forEach((key) => {
-            const { message, value } = validationError.errors[key];
-            errors.push({
-              path: key,
-              message,
-              value,
-            });
-          });
           validationErrors.push({
             message: validationError.message,
-            errors: errors,
+            errors: validationError.errors,
           });
         } else {
           validationErrors.push(null); // error order

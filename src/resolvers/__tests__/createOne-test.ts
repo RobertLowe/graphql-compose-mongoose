@@ -117,12 +117,10 @@ describe('createOne() ->', () => {
         },
       });
       // TODO: FIX error
-      expect(result.error).toEqual(
-        [
-          { message: 'Path `n` is required.', path: 'n', value: undefined },
-          { message: 'this is a validate message', path: 'valid', value: 'AlwaysFails' },
-        ][0] // <---- [0] remove after preparation correct ValidationErrorsType
-      );
+      expect(result.error.errors).toEqual([
+        { message: 'Path `n` is required.', path: 'n', value: undefined },
+        { message: 'this is a validate message', path: 'valid', value: 'AlwaysFails' },
+      ]);
     });
 
     it('should throw GraphQLError if client does not request errors field in payload', async () => {
